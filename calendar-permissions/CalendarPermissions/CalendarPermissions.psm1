@@ -3,7 +3,7 @@ function Add-CalendarPermission {
     param()
 
     $mailbox = Read-Host "Enter the mailbox email address (calendar owner)"
-    $user = Read-Host "Enter the user/group to grant access to (e.g. ~HCC Everyone)"
+    $user = Read-Host "Enter the user/group to grant access to (e.g. ~group)"
     $accessRights = Read-Host "Enter access rights (default: Reviewer)"
 
     if ([string]::IsNullOrWhiteSpace($accessRights)) {
