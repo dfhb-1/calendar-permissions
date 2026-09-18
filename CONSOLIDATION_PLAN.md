@@ -17,13 +17,13 @@ This document has three parts:
 
 | Item | State |
 |---|---|
-| Repo | `https://github.com/dfhb-1/calendar-permissions` (private), branch `main`, 2 commits |
+| Repo | `https://github.com/dfhb-1/calendar-permissions` — **public** (as of 2026-09-18), branch `main`, 2 commits. `origin` uses SSH (`git@github.com:dfhb-1/...`); SSH auth verified as `dfhb-1`, so Claude Code can push branches and tags from this machine. |
 | `calendar-permissions/CalendarPermissions/` | Module v1.0.0. One function `Add-CalendarPermission`; fully interactive (`Read-Host`), no parameters, no `-WhatIf`. Manifest is the default template (`FunctionsToExport = '*'`, `CompanyName = 'Unknown'`). Committed. |
 | `entra-group-members/EntraGroupMembers/` | Module v1.0.0. `Add-EntraGroupMember`, `Remove-EntraGroupMember`. Well-structured: private helpers, comment-based help, `SupportsShouldProcess`, CSV input, logging, explicit exports, PS 5.1 + 7 compatible. **Untracked — not yet committed.** |
 | Installers | Two separate `install.ps1` files with different logic. The root one uses `$IsWindows` (breaks on PS 5.1) and doesn't honour OneDrive-redirected Documents. The EntraGroupMembers one handles both. |
 | Updating | Manual: `git pull` + rerun `install.ps1`. No version check, no in-shell update command. |
 | Tests / CI | None. No Pester or PSScriptAnalyzer locally. |
-| Local tooling | macOS, pwsh 7.5.4. No `gh` CLI. |
+| Local tooling | macOS, pwsh 7.5.4. No `gh` CLI (not required — SSH covers push/tag; releases are created by GitHub Actions). |
 
 ### Problems this plan solves
 
@@ -45,11 +45,11 @@ prompts below reference these names.
 | **Repo name** | Rename `calendar-permissions` → `hutton-tools` | The repo is no longer about calendars. GitHub auto-redirects the old URL, so existing clones keep working. |
 | **One module vs. many** | One module, functions in `Public/*.ps1` | Separate modules only pay off when dependencies conflict. Here they don't: both `ExchangeOnlineManagement` and `Microsoft.Graph` are declared as *external* dependencies checked at call time, not import time, so importing `HuttonTools` never fails because Graph isn't installed. |
 | **Adding a new tool** | Drop `Public/Verb-Noun.ps1` in, add the name to `FunctionsToExport`, bump version | A Pester test fails if a Public file isn't exported, so you can't forget. A scaffold script (`tools/New-Tool.ps1`) does both steps for you. |
-| **Distribution** | GitHub Releases (semver tags `vX.Y.Z`) + a `HuttonTools.zip` asset built by GitHub Actions | Releases give a stable "latest" URL, an immutable artifact per version, and release notes — without needing a PowerShell Gallery / NuGet feed. |
-| **Install** | One-liner: `irm https://raw.githubusercontent.com/dfhb-1/hutton-tools/main/install.ps1 \| iex` — plus `./install.ps1` from a clone | `irm \| iex` is the standard PowerShell bootstrap pattern users already know from Scoop, Chocolatey, oh-my-posh, etc. |
-| **Update** | `Update-HuttonTools` built into the module | Compares installed `ModuleVersion` to the latest GitHub release, downloads the zip, replaces the install, tells you to reopen the shell. `-CheckOnly` just reports. |
+| **Distribution** | GitHub Releases (semver tags `vX.Y.Z`) + a `HuttonTools.zip` asset built by GitHub Actions | Releases give a stable "latest" URL, an immutable artifact per version, and release notes — without needing a PowerShell Gallery / NuGet feed. Because the repo is public, `https://github.com/dfhb-1/hutton-tools/releases/latest/download/HuttonTools.zip` always resolves to the newest asset with **no API call and no credentials**. |
+| **Install** | One-liner: `irm https://raw.githubusercontent.com/dfhb-1/hutton-tools/main/install.ps1 \| iex` — plus `./install.ps1` from a clone | `irm \| iex` is the standard PowerShell bootstrap pattern users already know from Scoop, Chocolatey, oh-my-posh, etc. The installer downloads the zip from the `releases/latest/download/` URL above, so it never touches the GitHub API and can't be rate-limited. |
+| **Update** | `Update-HuttonTools` built into the module | One unauthenticated call to `api.github.com/repos/.../releases/latest` to learn the newest version, compares to installed `ModuleVersion`, downloads the zip, replaces the install, tells you to reopen the shell. `-CheckOnly` just reports. Unauthenticated API limit is 60 requests/hour per IP — plenty for a version check; if a whole office behind one NAT ever hits it, setting `$env:GITHUB_TOKEN` lifts it (optional, two lines of code). |
 | **Install location** | Current-user module path for the edition running the installer (`Documents\PowerShell\Modules` on pwsh 7, `Documents\WindowsPowerShell\Modules` on 5.1, `~/.local/share/powershell/Modules` on macOS/Linux). Honours OneDrive-redirected Documents. No admin needed. | Because it's on `$env:PSModulePath`, PowerShell **auto-imports** the module the first time you call any of its commands. **No `$PROFILE` edit is needed** — the current READMEs suggesting `Add-Content $PROFILE` are unnecessary and should be dropped. |
-| **Public vs. private repo** | **Decide before Phase 2.** Code is written to work either way. | *Public:* `irm \| iex` and `Update-HuttonTools` work with zero credentials. Nothing in the modules is sensitive (the scrub commit shows you already treat it that way). *Private:* the installer/updater needs a GitHub token with read access to Contents. It looks for `$env:GITHUB_TOKEN`, then `gh auth token` if the gh CLI is present, and otherwise tells the user how to create a fine-grained PAT. The `irm` one-liner also needs the token in a header, so the private install becomes a 3-liner. Recommendation: **public**. |
+| **Public vs. private repo** | **Decided: public** (2026-09-18). | `irm \| iex` and `Update-HuttonTools` work with zero credentials; no token discovery, no PAT instructions, no private-repo error branches in the code. Keep it that way: never commit tenant IDs, real group names, or user emails into examples (the existing `scrubbed group name example` commit is the right habit — Phase 1 also scrubs the `@huttonbuilds.com` addresses currently in `EntraGroupMembers` help examples). If the repo ever goes private again, the only change needed is an `Authorization: Bearer $env:GITHUB_TOKEN` header on the two web calls. |
 | **PS 5.1 support** | Yes | Windows PowerShell 5.1 is still the default shell on Windows. Costs nothing here except avoiding `$IsWindows` and forcing TLS 1.2 before web calls. |
 | **Legacy cleanup** | The new installer removes old `CalendarPermissions` and `EntraGroupMembers` module folders from the user module path | Otherwise two modules export `Add-EntraGroupMember` and whichever imports last wins — confusing to debug. |
 | **`Add-CalendarPermission` behaviour** | Make it parameterised (`-Mailbox`, `-User`, `-AccessRights`) with `-WhatIf`. Mandatory parameters still prompt if omitted, so interactive use is unchanged. | Scriptable, previewable, consistent with the Entra commands. |
@@ -102,8 +102,10 @@ hutton-tools/
 ```
 Detect mode:
   $PSScriptRoot set  → running from a clone.  Source = ./HuttonTools
-  $PSScriptRoot empty → piped via irm | iex.   Source = download latest release zip
-                                               (or -Version vX.Y.Z), extract to temp
+  $PSScriptRoot empty → piped via irm | iex.   Source = download
+        https://github.com/dfhb-1/hutton-tools/releases/latest/download/HuttonTools.zip
+        (or .../releases/download/<-Version>/HuttonTools.zip), extract to temp
+        No API call, no auth — GitHub serves these redirects for public repos.
 Resolve user module path for current edition/OS (OneDrive-aware)
 Remove legacy CalendarPermissions / EntraGroupMembers folders if present (say so)
 Remove existing HuttonTools folder, copy new one in
@@ -120,11 +122,12 @@ Parameters: `-Version <tag>` (pin a release), `-Source <path>` (install from an 
 
 ```
 Read installed version from the loaded module's manifest
-GET https://api.github.com/repos/dfhb-1/hutton-tools/releases/latest
-  (Authorization header if a token is available — see Public/private decision)
+GET https://api.github.com/repos/dfhb-1/hutton-tools/releases/latest   (unauthenticated;
+  adds Authorization header only if $env:GITHUB_TOKEN happens to be set — rate-limit relief)
 Compare [version] — if not newer: "HuttonTools X.Y.Z is up to date." and stop
 -CheckOnly → print installed vs latest + release notes URL, stop
-Download the HuttonTools.zip release asset to temp, extract
+Download https://github.com/dfhb-1/hutton-tools/releases/download/<tag>/HuttonTools.zip
+  to temp, extract
 Run the install.ps1 *from inside the downloaded release* with -Source <extracted module>
   (so the installer always matches the version being installed — one copy of install logic)
 Print "Updated X.Y.Z → A.B.C. Open a new PowerShell session to load it."
@@ -160,8 +163,12 @@ Run these in order. Each prompt is self-contained: open Claude Code in
 `~/Documents/Powershell` (or the renamed clone) and paste the prompt. Review the diff and
 commit between phases — each phase ends with a commit so you can stop anywhere.
 
-Before Phase 1, make the decisions in section 2 (at minimum: module name, repo name, public vs
-private). If you change a name, find/replace it in the prompts below.
+Before Phase 1, confirm the names in section 2 (`HuttonTools` module, `hutton-tools` repo). If
+you change either, find/replace it in the prompts below. Public vs. private is already decided.
+
+Git workflow for the phases: Claude Code has SSH push access, so each phase can be done on a
+branch and pushed (`git push -u origin <branch>`), then merged via a PR on GitHub or a local
+`git merge`. Merging to `main` and tagging releases stay with you.
 
 ### Phase 0 — Prep (you, not Claude — 5 minutes)
 
@@ -170,13 +177,14 @@ private). If you change a name, find/replace it in the prompts below.
    Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck
    Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
    ```
-2. Optional but recommended: install the GitHub CLI (`brew install gh && gh auth login`).
-   Claude Code can then rename the repo, create releases and open PRs for you. Without it,
-   those steps are done in the GitHub web UI and noted in each phase.
-3. Rename the repo on GitHub: Settings → General → Repository name → `hutton-tools`.
-   Then locally: `git remote set-url origin https://github.com/dfhb-1/hutton-tools.git`.
-   (Or with gh: `gh repo rename hutton-tools`.)
-4. Decide public vs. private. If public: Settings → Danger Zone → Change visibility.
+2. Rename the repo on GitHub: Settings → General → Repository name → `hutton-tools`.
+   Then locally: `git remote set-url origin git@github.com:dfhb-1/hutton-tools.git`.
+   (GitHub redirects the old name, so this isn't urgent — but the `irm` one-liner and the
+   release URLs in the code are written against `hutton-tools`, so do it before Phase 4's
+   first release.)
+3. ~~Decide public vs. private~~ — done, public.
+4. Optional: install the GitHub CLI (`brew install gh && gh auth login`) if you want Claude
+   Code to open PRs and draft releases for you. Not required for anything in this plan.
 
 ### Phase 1 — Consolidate into one module
 
@@ -223,13 +231,17 @@ Rules:
   wanted; just delete it). Replace README.md with a short placeholder that names the module and lists
   the three commands; the full README is written in a later phase.
 - Add .gitignore with .DS_Store, *.log, TestResults/, and remove the tracked .DS_Store files from git.
+- The repo is PUBLIC. Scrub the real @huttonbuilds.com addresses and real group names from the
+  EntraGroupMembers comment-based help examples — use user@contoso.com / "Sales Team" style
+  placeholders. Grep the whole tree for huttonbuilds.com and any GUIDs before committing.
 - Must work on Windows PowerShell 5.1 and PowerShell 7 — no $IsWindows, no ternary, no null-coalescing,
   no PS7-only cmdlets.
 
 Verify with pwsh: Test-ModuleManifest ./HuttonTools/HuttonTools.psd1; Import-Module ./HuttonTools -Force;
 Get-Command -Module HuttonTools shows exactly the three public commands and none of the private ones;
-Get-Help Add-CalendarPermission -Full shows the new parameters. Then commit everything with the message
-"Consolidate CalendarPermissions and EntraGroupMembers into HuttonTools module".
+Get-Help Add-CalendarPermission -Full shows the new parameters. Then commit everything on a branch
+named phase-1-consolidate with the message "Consolidate CalendarPermissions and EntraGroupMembers into
+HuttonTools module" and push it to origin (SSH access is configured). Do not merge to main.
 ```
 
 ### Phase 2 — Installer
@@ -250,15 +262,15 @@ because users will run it via `irm <raw url> | iex` with nothing else present). 
 - Parameters: -Version <string> (a release tag like v1.2.0; default = latest), -Source <path> (install
   from this folder instead of downloading; the folder must contain HuttonTools.psd1), -KeepLegacy (switch).
 - Mode detection: if -Source given use it. Else if $PSScriptRoot is non-empty and "$PSScriptRoot/HuttonTools/HuttonTools.psd1"
-  exists, install from there (clone mode). Else download mode: call the GitHub API
-  https://api.github.com/repos/dfhb-1/hutton-tools/releases/latest (or /releases/tags/<Version>),
-  find the asset named HuttonTools.zip, download it to a temp folder, Expand-Archive, and use the
-  extracted HuttonTools folder. If no such asset exists, fall back to the release's zipball_url and
-  locate HuttonTools/HuttonTools.psd1 inside the extracted tree.
-- GitHub auth (needed only if the repo is private, harmless otherwise): if $env:GITHUB_TOKEN is set,
-  or `gh auth token` succeeds (gh present), send "Authorization: Bearer <token>" on API and download
-  requests. On a 404 from the API with no token, print a message explaining the repo may be private
-  and how to set GITHUB_TOKEN (fine-grained PAT, Contents: read-only), then exit 1.
+  exists, install from there (clone mode). Else download mode: the repo is public, so do NOT call the
+  GitHub API. Download directly from
+    https://github.com/dfhb-1/hutton-tools/releases/latest/download/HuttonTools.zip        (default)
+    https://github.com/dfhb-1/hutton-tools/releases/download/<Version>/HuttonTools.zip     (-Version)
+  to a temp folder (Invoke-WebRequest follows the redirect), Expand-Archive, and use the extracted
+  HuttonTools folder. The zip's root contains HuttonTools/ and install.ps1 side by side (the release
+  workflow guarantees this) — locate HuttonTools/HuttonTools.psd1 inside the extracted tree rather
+  than assuming a fixed depth. On a 404, print "No release found (tag <Version>)" — or, for latest,
+  "No releases published yet" — and exit 1. No token handling, no zipball fallback.
 - Target path: current user's module path for the RUNNING edition. Windows: [Environment]::GetFolderPath('MyDocuments')
   joined with 'WindowsPowerShell\Modules' on Desktop edition or 'PowerShell\Modules' on Core (this
   honours OneDrive-redirected Documents). macOS/Linux: $HOME/.local/share/powershell/Modules. Detect
@@ -288,8 +300,9 @@ since it can't import the module. Put a short comment in both pointing at the ot
 
 Verify: pwsh ./install.ps1 installs to ~/.local/share/powershell/Modules/HuttonTools, install.json is
 written, and in a NEW pwsh -NoProfile session `Get-Command Add-EntraGroupMember` resolves without an
-explicit Import-Module. Then pwsh ./install.ps1 -Source ./HuttonTools does the same. Commit as
-"Add cross-platform installer with release download and legacy cleanup".
+explicit Import-Module. Then pwsh ./install.ps1 -Source ./HuttonTools does the same. Commit on a
+branch phase-2-installer as "Add cross-platform installer with release download and legacy cleanup"
+and push it. Do not merge to main.
 ```
 
 ### Phase 3 — `Update-HuttonTools`
@@ -306,29 +319,31 @@ Read install.ps1, HuttonTools/Private/Get-HbInstallPath.ps1, and CONSOLIDATION_P
 Add two things to the module:
 
 1. Private/Get-HbGitHubRelease.ps1 — function Get-HbGitHubRelease -Repo 'dfhb-1/hutton-tools'
-   [-Tag <string>]. Returns an object with Version ([version] parsed from tag_name minus leading 'v'),
-   Tag, HtmlUrl, PublishedAt, Body (release notes), ZipAssetUrl (browser_download_url of the asset
-   named HuttonTools.zip, or $null), ZipballUrl. Uses the same token discovery as install.ps1
-   ($env:GITHUB_TOKEN, then `gh auth token`), forces TLS 1.2, uses -UseBasicParsing. Also a small
-   Private/Get-HbGitHubToken.ps1 so the token logic is in one place.
+   [-Tag <string>]. One unauthenticated GET to https://api.github.com/repos/<Repo>/releases/latest
+   (or /releases/tags/<Tag>). Returns an object with Version ([version] parsed from tag_name minus
+   leading 'v'), Tag, HtmlUrl, PublishedAt, Body (release notes), ZipAssetUrl (browser_download_url
+   of the asset named HuttonTools.zip; throw a clear error if the release has no such asset).
+   Forces TLS 1.2, uses -UseBasicParsing, sends a User-Agent header (GitHub requires one). If
+   $env:GITHUB_TOKEN is set, add "Authorization: Bearer" — purely for rate-limit relief; never
+   prompt for or discover a token otherwise. On HTTP 404 throw "No releases found for <Repo>".
+   On 403 with an X-RateLimit-Remaining: 0 header, throw a message that names the reset time and
+   mentions GITHUB_TOKEN.
 
 2. Public/Update-HuttonTools.ps1 — [CmdletBinding(SupportsShouldProcess)] with -CheckOnly and -Force
    switches, full comment-based help with examples.
    - Installed version: read from (Get-Module HuttonTools).Version, falling back to the manifest at
      $PSScriptRoot/../HuttonTools.psd1. Also read install.json next to the manifest if present and
      show its installedAt in -CheckOnly output.
-   - Latest: Get-HbGitHubRelease. If it fails with 404 and no token, explain the private-repo /
-     GITHUB_TOKEN situation clearly.
+   - Latest: Get-HbGitHubRelease. Let its "No releases found" / rate-limit errors surface as-is.
    - If latest <= installed and not -Force: write "HuttonTools <v> is up to date." and return.
    - -CheckOnly: print a small table/object: Installed, Latest, PublishedAt, ReleaseUrl, and
      "Run Update-HuttonTools to install." if newer. Return the object so it's scriptable.
    - Otherwise, inside ShouldProcess("HuttonTools <installed> -> <latest>", "Update"): download
-     HuttonTools.zip (or zipball fallback) to a temp dir, Expand-Archive, locate the extracted
-     HuttonTools folder AND the install.ps1 that shipped with that release (the release zip must
-     contain install.ps1 next to the module folder — if it doesn't, fall back to downloading
-     install.ps1 from https://raw.githubusercontent.com/dfhb-1/hutton-tools/<tag>/install.ps1),
-     then invoke that install.ps1 -Source <extracted HuttonTools folder>. Reusing the shipped
-     installer means there is exactly one implementation of "how to install".
+     ZipAssetUrl to a temp dir, Expand-Archive, locate the extracted HuttonTools folder AND the
+     install.ps1 that shipped with that release (the release zip always contains install.ps1 next
+     to the module folder — treat its absence as a corrupt release and stop), then invoke that
+     install.ps1 -Source <extracted HuttonTools folder>. Reusing the shipped installer means there
+     is exactly one implementation of "how to install".
    - Note: the currently-loaded module files will be overwritten while loaded. That's fine on
      all platforms for script modules, but the new code won't be active in this session. Print
      "Updated <old> -> <new>. Open a new PowerShell session to load the new version." Do NOT try
@@ -340,8 +355,9 @@ in HuttonTools.psm1, if install.json exists and is older than 30 days, write one
 suggesting Update-HuttonTools -CheckOnly. Verbose only — imports must stay silent by default.
 
 Verify with pwsh: Import-Module ./HuttonTools -Force; Update-HuttonTools -CheckOnly. If no release
-exists yet on GitHub it should fail with a clear "no releases found" message rather than a raw
-exception — handle that case. Commit as "Add Update-HuttonTools with GitHub release lookup".
+exists yet on GitHub it should fail with a clear "No releases found" message rather than a raw
+exception. Commit on a branch phase-3-update as "Add Update-HuttonTools with GitHub release lookup"
+and push it. Do not merge to main.
 ```
 
 ### Phase 4 — Tests, CI, and release automation
@@ -394,19 +410,24 @@ and PSScriptAnalyzer are installed locally.
 6. .github/PULL_REQUEST_TEMPLATE.md with a 4-item checklist: tests pass, version bumped if
    user-facing, CHANGELOG updated, help/examples added for new commands.
 
+Also add a test that the URLs hard-coded in install.ps1 and Private/Get-HbGitHubRelease.ps1 all
+reference the same owner/repo string (dfhb-1/hutton-tools) so a future rename can't half-apply.
+
 Run Invoke-Pester ./tests locally under pwsh and fix anything it finds in the module (do fix
-genuine analyzer findings; do not blanket-suppress). Commit as "Add Pester tests, CI and release
-workflows". Then tell me the exact commands to tag and push v1.0.0 — do not tag or push yourself.
+genuine analyzer findings; do not blanket-suppress). Commit on a branch phase-4-ci as "Add Pester
+tests, CI and release workflows" and push it. Do not merge to main and do not create any tags —
+tell me the exact commands to tag and push v1.0.0 instead.
 ```
 
-After Claude finishes, you run:
+After merging to `main`, you run (from `main`, after confirming the repo rename in Phase 0 is done):
 
 ```powershell
 git tag v1.0.0
 git push origin main --tags
 ```
 
-Watch the Actions tab. When the release exists, verify end to end on a Windows machine:
+Watch the Actions tab. When the release exists, verify end to end on a Windows machine with
+nothing pre-installed:
 
 ```powershell
 irm https://raw.githubusercontent.com/dfhb-1/hutton-tools/main/install.ps1 | iex
@@ -414,8 +435,8 @@ Get-Command -Module HuttonTools
 Update-HuttonTools -CheckOnly
 ```
 
-(If the repo is private: `$env:GITHUB_TOKEN = '<PAT>'` first, and use
-`irm -Headers @{Authorization="Bearer $env:GITHUB_TOKEN"} <raw url> | iex`.)
+Also confirm the stable download URL resolves in a browser:
+`https://github.com/dfhb-1/hutton-tools/releases/latest/download/HuttonTools.zip`
 
 ### Phase 5 — Docs and contributor experience
 
@@ -426,12 +447,12 @@ add a new tool by following CONTRIBUTING.md without re-reading this plan.
 Repo: ~/Documents/Powershell (GitHub dfhb-1/hutton-tools), PowerShell module HuttonTools with
 Public/ (Add-CalendarPermission, Add-EntraGroupMember, Remove-EntraGroupMember, Update-HuttonTools),
 Private/ helpers, root install.ps1, tests/, .github/workflows, CHANGELOG.md. Read all of it and
-CONSOLIDATION_PLAN.md first. The repo is [public | private — pick one and delete the other].
+CONSOLIDATION_PLAN.md first. The repo is public.
 
 1. Rewrite README.md for END USERS. Sections, in this order: one-paragraph what-it-is; Install
-   (the irm | iex one-liner first, then "from a clone: ./install.ps1", then the private-repo
-   token note if applicable, then "no admin rights needed, no $PROFILE changes needed — commands
-   auto-load"); Prerequisites (Install-Module ExchangeOnlineManagement / Microsoft.Graph, one-time,
+   (the irm | iex one-liner first, then "from a clone: ./install.ps1", then "no admin rights
+   needed, no $PROFILE changes needed — commands auto-load", then a one-line "pin a version:
+   install.ps1 -Version vX.Y.Z"); Prerequisites (Install-Module ExchangeOnlineManagement / Microsoft.Graph, one-time,
    and which commands need which); Update (Update-HuttonTools, -CheckOnly, pinning with
    install.ps1 -Version); Commands — one subsection per public command with a 1-line description
    and 2–3 copy-paste examples pulled from the functions' comment-based help (keep them in sync —
@@ -460,7 +481,8 @@ CONSOLIDATION_PLAN.md first. The repo is [public | private — pick one and dele
 
 4. Update the module-tests so tools/ is analyzer-checked too (if not already).
 
-Run the tests, commit as "Add end-user README, contributor guide and New-Tool scaffold".
+Run the tests, commit on a branch phase-5-docs as "Add end-user README, contributor guide and
+New-Tool scaffold" and push it. Do not merge to main.
 ```
 
 ### Phase 6 — Optional follow-ups (not needed for launch)
@@ -473,9 +495,11 @@ Pick these up later as individual prompts if they become worth it:
 - **`Get-HuttonTool`**: list all commands with synopsis — a nicer `Get-Command -Module HuttonTools`.
 - **Signed releases**: Authenticode-sign the module in `release.yml` if execution policy on
   workstations is `AllSigned`. Needs a code-signing cert.
-- **PowerShell Gallery / private NuGet feed**: if the tool set grows past a handful of users,
-  `Install-Module HuttonTools` from a feed beats `irm | iex`. GitHub Packages works with
-  `PSResourceGet` but every user needs a PAT; Azure Artifacts is smoother if you have Azure DevOps.
+- **PowerShell Gallery**: now that the repo is public, publishing to the public PowerShell
+  Gallery is an option — `Install-Module HuttonTools` / `Update-Module HuttonTools` with no
+  custom installer at all. Costs: a Gallery account + API key, the name is global so
+  `HuttonTools` must be unused, and it's a public listing. Worth it only if people outside
+  your team should find it; for an internal IT toolset the release-zip flow is simpler.
 - **Winget/Intune deployment**: push `install.ps1` as an Intune PowerShell script so new IT
   workstations get the toolset automatically.
 
