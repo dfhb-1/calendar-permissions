@@ -1,40 +1,16 @@
-# CalendarPermissions
+# HuttonTools
 
-PowerShell module for adding calendar folder permissions to a mailbox via `Add-MailboxFolderPermission`.
+PowerShell module of Microsoft 365 administration tools.
 
-## Install
+## Commands
 
-1. Clone this repo:
-```powershell
-   git clone https://github.com/your-org/calendar-permissions.git
-   cd calendar-permissions
-```
+| Command | Description |
+|---|---|
+| `Add-CalendarPermission` | Grant a user or group access to an Exchange Online mailbox calendar. |
+| `Add-EntraGroupMember` | Add one or more users to a Microsoft Entra ID group. |
+| `Remove-EntraGroupMember` | Remove one or more users from a Microsoft Entra ID group. |
 
-2. Run the installer:
-```powershell
-   ./install.ps1
-```
+Run `Get-Help <command> -Full` for parameters and examples.
 
-3. Import the module:
-```powershell
-   Import-Module CalendarPermissions
-```
-
-4. (Optional) Auto-load it every session:
-```powershell
-   Add-Content -Path $PROFILE -Value "Import-Module CalendarPermissions"
-```
-
-## Usage
-
-Make sure you're connected to Exchange Online first:
-```powershell
-Connect-ExchangeOnline
-```
-
-Then run:
-```powershell
-Add-CalendarPermission
-```
-
-You'll be prompted for the mailbox email, the user/group, and access rights (defaults to `Reviewer`).
+Installation, prerequisites and update instructions are coming in a later phase — see
+[CONSOLIDATION_PLAN.md](CONSOLIDATION_PLAN.md).
