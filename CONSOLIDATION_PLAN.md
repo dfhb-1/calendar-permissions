@@ -271,7 +271,9 @@ because users will run it via `irm <raw url> | iex` with nothing else present). 
 
 - Parameters: -Version <string> (a release tag like v1.2.0; default = latest), -Source <path> (install
   from this folder instead of downloading; the folder must contain HuttonTools.psd1), -KeepLegacy (switch).
-- Mode detection: if -Source given use it. Else if $PSScriptRoot is non-empty and "$PSScriptRoot/HuttonTools/HuttonTools.psd1"
+- Mode detection: if -Source given use it. Else if -Version was given, go straight to download mode
+  (an explicit version means "install that release", so it must outrank the working tree). Else if
+  $PSScriptRoot is non-empty and "$PSScriptRoot/HuttonTools/HuttonTools.psd1"
   exists, install from there (clone mode). Else download mode: the repo is public, so do NOT call the
   GitHub API. Download directly from
     https://github.com/dfhb-1/hutton-tools/releases/latest/download/HuttonTools.zip        (default)

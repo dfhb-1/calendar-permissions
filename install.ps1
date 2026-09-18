@@ -69,7 +69,8 @@ try {
         }
         $sourceKind = 'path'
     }
-    elseif ($PSScriptRoot -and (Test-Path (Join-Path (Join-Path $PSScriptRoot $moduleName) 'HuttonTools.psd1'))) {
+    # An explicit -Version means "install that release", so it outranks the working tree.
+    elseif (-not $Version -and $PSScriptRoot -and (Test-Path (Join-Path (Join-Path $PSScriptRoot $moduleName) 'HuttonTools.psd1'))) {
         $sourceModule = Join-Path $PSScriptRoot $moduleName
         $sourceKind = 'clone'
     }
