@@ -166,9 +166,17 @@ commit between phases — each phase ends with a commit so you can stop anywhere
 Before Phase 1, confirm the names in section 2 (`HuttonTools` module, `hutton-tools` repo). If
 you change either, find/replace it in the prompts below. Public vs. private is already decided.
 
-Git workflow for the phases: Claude Code has SSH push access, so each phase can be done on a
-branch and pushed (`git push -u origin <branch>`), then merged via a PR on GitHub or a local
-`git merge`. Merging to `main` and tagging releases stay with you.
+Git workflow for the phases: **commit each phase straight to `main` and push it.** There is no
+second reviewer on this repo, so a per-phase branch only strands the work off `main` — and every
+phase's "Done when" check runs in your own checkout, so it cannot pass until the work is actually
+there. (Phase 1 was first run on a branch and had to be merged by hand afterwards; that is the
+mistake this line exists to prevent.) Tagging releases still stays with you, in Phase 4.
+
+One caveat: a **background** Claude Code job is forced to edit inside a git worktree, so it will
+hand you a branch no matter what this section says. Either fast-forward it yourself
+(`git merge --ff-only <branch>`) or set `"worktree": {"bgIsolation": "none"}` in
+`.claude/settings.json` to let background jobs commit to the checkout directly. Interactive
+sessions are unaffected.
 
 ### Phase 0 — Prep (you, not Claude — 5 minutes)
 
@@ -239,9 +247,11 @@ Rules:
 
 Verify with pwsh: Test-ModuleManifest ./HuttonTools/HuttonTools.psd1; Import-Module ./HuttonTools -Force;
 Get-Command -Module HuttonTools shows exactly the three public commands and none of the private ones;
-Get-Help Add-CalendarPermission -Full shows the new parameters. Then commit everything on a branch
-named phase-1-consolidate with the message "Consolidate CalendarPermissions and EntraGroupMembers into
-HuttonTools module" and push it to origin (SSH access is configured). Do not merge to main.
+Get-Help Add-CalendarPermission -Full shows the new parameters. Run that verification from the repo
+root of the main checkout, not from a worktree — checking a branch you have not merged proves
+nothing about the tree the user actually works in. Then commit everything to main with the message
+"Consolidate CalendarPermissions and EntraGroupMembers into HuttonTools module" and push to origin
+(SSH access is configured).
 ```
 
 ### Phase 2 — Installer
@@ -300,9 +310,8 @@ since it can't import the module. Put a short comment in both pointing at the ot
 
 Verify: pwsh ./install.ps1 installs to ~/.local/share/powershell/Modules/HuttonTools, install.json is
 written, and in a NEW pwsh -NoProfile session `Get-Command Add-EntraGroupMember` resolves without an
-explicit Import-Module. Then pwsh ./install.ps1 -Source ./HuttonTools does the same. Commit on a
-branch phase-2-installer as "Add cross-platform installer with release download and legacy cleanup"
-and push it. Do not merge to main.
+explicit Import-Module. Then pwsh ./install.ps1 -Source ./HuttonTools does the same. Commit to main
+as "Add cross-platform installer with release download and legacy cleanup" and push.
 ```
 
 ### Phase 3 — `Update-HuttonTools`
@@ -356,8 +365,7 @@ suggesting Update-HuttonTools -CheckOnly. Verbose only — imports must stay sil
 
 Verify with pwsh: Import-Module ./HuttonTools -Force; Update-HuttonTools -CheckOnly. If no release
 exists yet on GitHub it should fail with a clear "No releases found" message rather than a raw
-exception. Commit on a branch phase-3-update as "Add Update-HuttonTools with GitHub release lookup"
-and push it. Do not merge to main.
+exception. Commit to main as "Add Update-HuttonTools with GitHub release lookup" and push.
 ```
 
 ### Phase 4 — Tests, CI, and release automation
@@ -414,12 +422,12 @@ Also add a test that the URLs hard-coded in install.ps1 and Private/Get-HbGitHub
 reference the same owner/repo string (dfhb-1/hutton-tools) so a future rename can't half-apply.
 
 Run Invoke-Pester ./tests locally under pwsh and fix anything it finds in the module (do fix
-genuine analyzer findings; do not blanket-suppress). Commit on a branch phase-4-ci as "Add Pester
-tests, CI and release workflows" and push it. Do not merge to main and do not create any tags —
-tell me the exact commands to tag and push v1.0.0 instead.
+genuine analyzer findings; do not blanket-suppress). Commit to main as "Add Pester tests, CI and
+release workflows" and push. Do NOT create any tags — tell me the exact commands to tag and push
+v1.0.0 instead.
 ```
 
-After merging to `main`, you run (from `main`, after confirming the repo rename in Phase 0 is done):
+Then you run (after confirming the repo rename in Phase 0 is done):
 
 ```powershell
 git tag v1.0.0
@@ -481,8 +489,8 @@ CONSOLIDATION_PLAN.md first. The repo is public.
 
 4. Update the module-tests so tools/ is analyzer-checked too (if not already).
 
-Run the tests, commit on a branch phase-5-docs as "Add end-user README, contributor guide and
-New-Tool scaffold" and push it. Do not merge to main.
+Run the tests, commit to main as "Add end-user README, contributor guide and New-Tool scaffold"
+and push.
 ```
 
 ### Phase 6 — Optional follow-ups (not needed for launch)
