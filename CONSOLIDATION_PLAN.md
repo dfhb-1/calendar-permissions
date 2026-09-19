@@ -13,7 +13,30 @@ This document has three parts:
 
 ---
 
-## 1. Current state
+## 0. Status (updated 2026-09-18)
+
+| Phase | State | Landed as |
+|---|---|---|
+| 0 — Prep | Done. Repo renamed to `hutton-tools`, public, SSH remote. Pester 6.2.0 + PSScriptAnalyzer 1.25.0 installed. | — |
+| 1 — Consolidate into `HuttonTools` | Done and verified in the main checkout. | `da509ec` on `main` |
+| 2 — Installer | Done and verified (clone, `-Source`, `iex` download path, 404 handling, legacy cleanup). | `1f90f7f` on `worktree-phase-2-installer` — **awaiting your fast-forward merge** |
+| 3 — `Update-HuttonTools` | Not started. Spec amended below (see "Update flow"). | — |
+| 4 — Tests, CI, release | Not started. Spec amended below (Pester 6, compatibility rule instead of a string grep). | — |
+| 5 — Docs + scaffold | Not started. | — |
+
+Nothing has been released yet, so the `irm | iex` one-liner and `Update-HuttonTools` cannot
+succeed until Phase 4 publishes `v1.0.0`. That is expected sequencing, not a defect.
+
+**Pending actions for you** (also listed at the end of each session's report):
+
+1. Fast-forward Phase 2: `git merge --ff-only worktree-phase-2-installer && git push origin main`.
+2. Restart Claude Code so `.claude/settings.json` (`bgIsolation: none`) takes effect. Until then,
+   background jobs must edit inside a worktree and will keep handing you branches.
+3. Even after that, a **background** job will not push to `main` or merge — those stay yours. If you
+   want the remaining phases to land on `main` with no manual step, run them in an **interactive**
+   session; otherwise expect `git push origin main` after each phase.
+
+## 1. Starting state (before Phase 1 — kept for history)
 
 | Item | State |
 |---|---|
@@ -22,7 +45,7 @@ This document has three parts:
 | `entra-group-members/EntraGroupMembers/` | Module v1.0.0. `Add-EntraGroupMember`, `Remove-EntraGroupMember`. Well-structured: private helpers, comment-based help, `SupportsShouldProcess`, CSV input, logging, explicit exports, PS 5.1 + 7 compatible. **Untracked — not yet committed.** |
 | Installers | Two separate `install.ps1` files with different logic. The root one uses `$IsWindows` (breaks on PS 5.1) and doesn't honour OneDrive-redirected Documents. The EntraGroupMembers one handles both. |
 | Updating | Manual: `git pull` + rerun `install.ps1`. No version check, no in-shell update command. |
-| Tests / CI | None. No Pester or PSScriptAnalyzer locally. |
+| Tests / CI | None. No Pester or PSScriptAnalyzer locally at the time (both installed since — see Status). |
 | Local tooling | macOS, pwsh 7.5.4. No `gh` CLI (not required — SSH covers push/tag; releases are created by GitHub Actions). |
 
 ### Problems this plan solves
@@ -100,16 +123,23 @@ hutton-tools/
 ### Install flow (`install.ps1`)
 
 ```
-Detect mode:
-  $PSScriptRoot set  → running from a clone.  Source = ./HuttonTools
-  $PSScriptRoot empty → piped via irm | iex.   Source = download
+Detect mode, in this order:
+  -Source <path> given   → install from that folder.                    source = "path"
+  -Version <tag> given   → download that release (outranks the working  source = "release"
+                           tree: an explicit tag means "install that").
+  $PSScriptRoot set and  → running from a clone. Use ./HuttonTools.     source = "clone"
+    ./HuttonTools exists
+  otherwise              → piped via irm | iex. Download latest.        source = "release"
+
+Download URLs (no API call, no auth — GitHub serves these redirects for public repos):
         https://github.com/dfhb-1/hutton-tools/releases/latest/download/HuttonTools.zip
-        (or .../releases/download/<-Version>/HuttonTools.zip), extract to temp
-        No API call, no auth — GitHub serves these redirects for public repos.
+        https://github.com/dfhb-1/hutton-tools/releases/download/<tag>/HuttonTools.zip
+  Extract to temp, then FIND HuttonTools.psd1 by recursive search rather than assuming a
+  fixed depth. 404 → "No releases published yet." / "No release found (tag <tag>)."
 Resolve user module path for current edition/OS (OneDrive-aware)
 Remove legacy CalendarPermissions / EntraGroupMembers folders if present (say so)
 Remove existing HuttonTools folder, copy new one in
-Write HuttonTools/install.json  { version, source ("release"|"local"), installedAt, repo }
+Write HuttonTools/install.json  { version, source ("release"|"clone"|"path"), installedAt, repo }
 Test-ModuleManifest on the installed copy — fail loudly if bad
 Check external deps (ExchangeOnlineManagement, Microsoft.Graph.Groups, Microsoft.Graph.Users)
   → print Install-Module hint for anything missing; do not auto-install
@@ -126,12 +156,17 @@ GET https://api.github.com/repos/dfhb-1/hutton-tools/releases/latest   (unauthen
   adds Authorization header only if $env:GITHUB_TOKEN happens to be set — rate-limit relief)
 Compare [version] — if not newer: "HuttonTools X.Y.Z is up to date." and stop
 -CheckOnly → print installed vs latest + release notes URL, stop
-Download https://github.com/dfhb-1/hutton-tools/releases/download/<tag>/HuttonTools.zip
-  to temp, extract
-Run the install.ps1 *from inside the downloaded release* with -Source <extracted module>
-  (so the installer always matches the version being installed — one copy of install logic)
+Download the installer that shipped with that release:
+  https://raw.githubusercontent.com/dfhb-1/hutton-tools/<tag>/install.ps1  → temp file
+Run it:  & <temp>/install.ps1 -Version <tag>
+  It downloads HuttonTools.zip itself, so there is exactly one copy of "how to install",
+  the installer always matches the payload, and install.json correctly records
+  source = "release" (calling it with -Source would record "path").
 Print "Updated X.Y.Z → A.B.C. Open a new PowerShell session to load it."
 ```
+
+(Earlier drafts had Update-HuttonTools extract the zip and call `install.ps1 -Source`. That
+double-implemented the download and mislabelled provenance; superseded on 2026-09-18.)
 
 `-Force` reinstalls the latest even if versions match. `-WhatIf` supported.
 
@@ -172,24 +207,29 @@ phase's "Done when" check runs in your own checkout, so it cannot pass until the
 there. (Phase 1 was first run on a branch and had to be merged by hand afterwards; that is the
 mistake this line exists to prevent.) Tagging releases still stays with you, in Phase 4.
 
-One caveat: a **background** Claude Code job is forced to edit inside a git worktree, so it will
-hand you a branch no matter what this section says. Either fast-forward it yourself
-(`git merge --ff-only <branch>`) or set `"worktree": {"bgIsolation": "none"}` in
-`.claude/settings.json` to let background jobs commit to the checkout directly. Interactive
-sessions are unaffected.
+Two caveats about **background** Claude Code jobs (the kind launched from the job list, as
+opposed to an interactive terminal session):
+
+- They are forced to edit inside a git worktree unless `.claude/settings.json` sets
+  `"worktree": {"bgIsolation": "none"}`. That file now exists (local-only, gitignored), but it
+  only applies to sessions started after it was written.
+- Independently of that setting, a background job will never push to `main`, merge, or tag —
+  those are reserved for you. So from a background job the best case is "committed on `main`
+  locally, you run `git push origin main`"; the worst case (before the restart) is a branch you
+  fast-forward with `git merge --ff-only <branch>`.
+
+An **interactive** session has neither restriction and can do exactly what the phase prompts say.
+Prefer it for Phases 3–5.
 
 ### Phase 0 — Prep (you, not Claude — 5 minutes)
 
-1. Install local test tooling once:
+1. ~~Install local test tooling once~~ — done (Pester 6.2.0, PSScriptAnalyzer 1.25.0):
    ```powershell
    Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck
    Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
    ```
-2. Rename the repo on GitHub: Settings → General → Repository name → `hutton-tools`.
-   Then locally: `git remote set-url origin git@github.com:dfhb-1/hutton-tools.git`.
-   (GitHub redirects the old name, so this isn't urgent — but the `irm` one-liner and the
-   release URLs in the code are written against `hutton-tools`, so do it before Phase 4's
-   first release.)
+2. ~~Rename the repo on GitHub to `hutton-tools` and point `origin` at it~~ — done
+   (`git@github.com:dfhb-1/hutton-tools.git`).
 3. ~~Decide public vs. private~~ — done, public.
 4. Optional: install the GitHub CLI (`brew install gh && gh auth login`) if you want Claude
    Code to open PRs and draft releases for you. Not required for anything in this plan.
@@ -350,11 +390,15 @@ Add two things to the module:
    - -CheckOnly: print a small table/object: Installed, Latest, PublishedAt, ReleaseUrl, and
      "Run Update-HuttonTools to install." if newer. Return the object so it's scriptable.
    - Otherwise, inside ShouldProcess("HuttonTools <installed> -> <latest>", "Update"): download
-     ZipAssetUrl to a temp dir, Expand-Archive, locate the extracted HuttonTools folder AND the
-     install.ps1 that shipped with that release (the release zip always contains install.ps1 next
-     to the module folder — treat its absence as a corrupt release and stop), then invoke that
-     install.ps1 -Source <extracted HuttonTools folder>. Reusing the shipped installer means there
-     is exactly one implementation of "how to install".
+     the installer that shipped with that release,
+     https://raw.githubusercontent.com/dfhb-1/hutton-tools/<Tag>/install.ps1, to a temp file
+     (TLS 1.2, -UseBasicParsing), then run it as `& $tempInstaller -Version <Tag>`. Do NOT
+     download or extract HuttonTools.zip in this function and do NOT call install.ps1 -Source:
+     the installer's own -Version path downloads the zip, so there is exactly one implementation
+     of "how to install", it always matches the payload, and install.json records
+     source = "release". Propagate a non-zero $LASTEXITCODE from the installer as a terminating
+     error. If the raw install.ps1 download 404s, throw "Release <Tag> has no install.ps1" — that
+     means the tag predates the installer and cannot be installed this way.
    - Note: the currently-loaded module files will be overwritten while loaded. That's fine on
      all platforms for script modules, but the new code won't be active in this session. Print
      "Updated <old> -> <new>. Open a new PowerShell session to load the new version." Do NOT try
@@ -379,14 +423,15 @@ end to end.
 ```text
 Repo: ~/Documents/Powershell (GitHub dfhb-1/hutton-tools), PowerShell module in ./HuttonTools
 (Public/, Private/, HuttonTools.psd1, HuttonTools.psm1) plus root install.ps1. Read the module,
-install.ps1 and CONSOLIDATION_PLAN.md sections "Repo layout" and "Release flow" first. Pester 5
-and PSScriptAnalyzer are installed locally.
+install.ps1 and CONSOLIDATION_PLAN.md sections "Repo layout" and "Release flow" first.
+Pester 6.2.0 and PSScriptAnalyzer 1.25.0 are installed locally.
 
 1. PSScriptAnalyzerSettings.psd1 at repo root: Severity Warning+Error, exclude
    PSAvoidUsingWriteHost (the tools deliberately use Write-Host for coloured operator output) and
    PSUseShouldProcessForStateChangingFunctions for Private/ helpers only if needed. Keep it minimal.
 
-2. tests/HuttonTools.Module.Tests.ps1 (Pester 5 syntax):
+2. tests/HuttonTools.Module.Tests.ps1 (Pester 5+ syntax — Describe/Context/It with Should -Be;
+   runs on the locally installed Pester 6):
    - Test-ModuleManifest passes.
    - Import-Module succeeds in a clean scope with no errors or warnings.
    - Every file in Public/ defines exactly one function whose name equals the file's basename, and
@@ -396,14 +441,23 @@ and PSScriptAnalyzer are installed locally.
    - Every Public function has comment-based help with a Synopsis and at least one Example.
    - ModuleVersion parses as [version] with three parts.
    - install.ps1 parses (use [System.Management.Automation.Language.Parser]::ParseFile and assert no
-     errors) and does not contain the string '$IsWindows' outside a line that also references PSEdition.
+     errors).
+   - PS 5.1 safety, checked PER FILE across HuttonTools/ and install.ps1: any file that mentions
+     $IsWindows must ALSO contain either 'PSEdition' or "Get-Variable -Name 'IsWindows'", because
+     $IsWindows does not exist on 5.1 and dereferencing it bare is the bug this guards against.
+     Do NOT write this as a per-line grep — the correct guarded idiom spans several lines
+     ($onWindows is assigned from $IsWindows on its own line, inside a Get-Variable check), and a
+     line-level rule produces false failures on correct code. Also assert no file contains PS7-only
+     syntax: '??', '?.', '&&', '||', or '-Parallel'.
    tests/ScriptAnalyzer.Tests.ps1: Invoke-ScriptAnalyzer -Recurse on HuttonTools/, install.ps1 and
    tools/ with the settings file returns no results; report each finding as its own failed test.
 
 3. .github/workflows/ci.yml: on push to main and on pull_request. Matrix: windows-latest and
    ubuntu-latest. On Windows run the tests under BOTH pwsh and powershell (5.1) — two steps or a
-   shell matrix. Steps: checkout, Install-Module Pester/PSScriptAnalyzer -Force, Invoke-Pester
-   ./tests -CI (exit non-zero on failure), upload TestResults as an artifact.
+   shell matrix. Steps: checkout; Install-Module Pester -MinimumVersion 5.5 -Force
+   -SkipPublisherCheck and Install-Module PSScriptAnalyzer -Force (pin a minimum so CI does not
+   silently run the Pester 3 that ships with Windows PowerShell 5.1); Invoke-Pester ./tests -CI
+   (exit non-zero on failure); upload TestResults as an artifact.
 
 4. .github/workflows/release.yml: on push of tags matching v*. Steps: checkout; read ModuleVersion
    from HuttonTools/HuttonTools.psd1 and fail if "v$ModuleVersion" != the tag; run the same tests;
